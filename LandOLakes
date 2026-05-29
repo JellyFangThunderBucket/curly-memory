@@ -9,7 +9,7 @@
 // @name:de      Skript zur Audio- und Videoverbesserung: Unterstützt stufenlose Geschwindigkeitsanpassung und mehr.
 // @namespace    https://github.com/xxxily/h5player
 // @homepage     https://github.com/xxxily/h5player
-// @version      4.3.5
+// @version      4.3.6-ios.2
 // @description  视频增强脚本，支持所有H5音视频网站，例如：B站、抖音、腾讯视频、优酷、爱奇艺、西瓜视频、油管（YouTube）、微博视频、知乎视频、搜狐视频、网易公开课、百度网盘、阿里云盘、ted、instagram、twitter等。全程快捷键控制，支持：倍速播放/加速播放、视频画面截图、画中画、网页全屏、调节亮度、饱和度、对比度、自定义配置功能增强等功能，为你提供愉悦的在线视频播放体验。还有视频广告快进、在线教程/教育视频倍速快学、视频文件下载等能力
 // @description:en  Audio and Video enhancement script, supports all H5 video websites, such as: Bilibili, Douyin, Tencent Video, Youku, iQiyi, Xigua Video, YouTube, Weibo Video, Zhihu Video, Sohu Video, NetEase Open Course, Baidu network disk, Alibaba cloud disk, ted, instagram, twitter, etc. Full shortcut key control, support: double-speed playback/accelerated playback, video screenshots, picture-in-picture, full-screen web pages, adjusting brightness, saturation, contrast
 // @description:zh  音视频增强脚本，支持所有H5视频网站，例如：B站、抖音、腾讯视频、优酷、爱奇艺、西瓜视频、油管（YouTube）、微博视频、知乎视频、搜狐视频、网易公开课、百度网盘、阿里云盘、ted、instagram、twitter等。全程快捷键控制，支持：倍速播放/加速播放、视频画面截图、画中画、网页全屏、调节亮度、饱和度、对比度、自定义配置功能增强等功能，为你提供愉悦的在线视频播放体验。还有视频广告快进、在线教程/教育视频倍速快学、视频文件下载等能力
@@ -942,7 +942,7 @@ function parseHTML (htmlString, targetElement) {
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(trustedHTML, 'text/html');
-  const nodes = doc.body.childNodes;
+  const nodes = Array.from(doc.body.childNodes);
   const result = [];
 
   if (targetElement && targetElement.appendChild) {
@@ -6806,26 +6806,37 @@ function mediaDownload (mediaEl, title, downloadType) {
 }
 
 const device = {
+  userAgent: () => navigator.userAgent || '',
+  isTouchDevice: () => {
+    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0 || navigator.msMaxTouchPoints > 0
+  },
+  isIOS: () => {
+    const ua = device.userAgent();
+    return /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  },
   isMobile: () => {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    const ua = device.userAgent();
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || device.isIOS()
   },
   isTablet: () => {
-    return /iPad/i.test(navigator.userAgent)
+    const ua = device.userAgent();
+    return /iPad|Tablet|PlayBook|Silk/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
   },
   isDesktop: () => {
     return !device.isMobile() && !device.isTablet()
   },
   isChrome: () => {
-    return /Chrome/i.test(navigator.userAgent)
+    return /Chrome|CriOS/i.test(device.userAgent()) && !device.isEdge()
   },
   isFirefox: () => {
-    return /Firefox/i.test(navigator.userAgent)
+    return /Firefox|FxiOS/i.test(device.userAgent())
   },
   isSafari: () => {
-    return /Safari/i.test(navigator.userAgent)
+    const ua = device.userAgent();
+    return /Safari/i.test(ua) && !/Chrome|CriOS|Chromium|Android|Edg|OPR|Firefox|FxiOS/i.test(ua)
   },
   isEdge: () => {
-    return /Edge/i.test(navigator.userAgent)
+    return /Edge|Edg|EdgiOS/i.test(device.userAgent())
   }
 };
 
@@ -11631,6 +11642,40 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
     }
   ];
 
+  function escapeHTML (value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[char])
+  }
+
+  function escapeAttr (value) {
+    return escapeHTML(value).replace(/`/g, '&#96;')
+  }
+
+  function safeJsonAttr (value) {
+    return escapeAttr(JSON.stringify(value == null ? null : value))
+  }
+
+  function safeURL (value) {
+    const url = String(value || '').trim();
+    if (!url) { return '' }
+
+    try {
+      const parsedURL = new URL(url, location.href);
+      if (parsedURL.protocol === 'data:') {
+        return /^data:image\/(?:svg\+xml|png|gif|jpe?g|webp);/i.test(url) ? url : ''
+      }
+      if (!['http:', 'https:', 'mailto:'].includes(parsedURL.protocol)) { return '' }
+      return parsedURL.href
+    } catch (e) {
+      return ''
+    }
+  }
+
   /* menuConfig预处理函数，根据指定的参考dom元素，通过判断元素的宽度来决定是否只显示菜单的图标，以节省展示位置 */
   function menuConfigPreprocess (menuConfig, refDom) {
     const refWidth = refDom.offsetWidth;
@@ -11659,11 +11704,17 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
       const title = (item.title instanceof Function ? item.title() : item.title) || '';
       const desc = (item.desc instanceof Function ? item.desc() : item.desc) || '';
       const id = item.id || Math.random().toString(36).substr(2);
+      const safeTitle = escapeHTML(title);
+      const safeDescription = escapeAttr(desc || title);
+      const safeAction = escapeAttr(item.action || '');
+      const safeArgs = safeJsonAttr(item.args || null);
+      const safeId = escapeAttr(id);
+      const safeItemURL = escapeAttr(safeURL(item.url));
 
       if (item.subMenu) {
         return `
-        <sl-menu-item class="h5p-menu-action" value="${id}" title="${desc || title}" data-action="${item.action || ''}" data-args='${JSON.stringify(item.args || null)}'>
-          ${title}
+        <sl-menu-item class="h5p-menu-action" value="${safeId}" title="${safeDescription}" data-action="${safeAction}" data-args='${safeArgs}'>
+          ${safeTitle}
           <sl-menu slot="submenu">
             ${convertDropdownMenuToTemplate(item.subMenu, false)}
           </sl-menu>
@@ -11672,8 +11723,8 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
       } else if (item.divider) {
         return '<sl-divider></sl-divider>'
       } else {
-        return `<sl-menu-item class="h5p-menu-action" value="${id}" title="${desc || title}" data-action="${item.action || ''}" data-args='${JSON.stringify(item.args || null)}' data-url="${item.url || ''}">
-        ${title}
+        return `<sl-menu-item class="h5p-menu-action" value="${safeId}" title="${safeDescription}" data-action="${safeAction}" data-args='${safeArgs}' data-url="${safeItemURL}">
+        ${safeTitle}
       </sl-menu-item>
       `
       }
@@ -11694,13 +11745,19 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
 
         const title = (item.title instanceof Function ? item.title() : item.title) || '';
         const desc = (item.desc instanceof Function ? item.desc() : item.desc) || '';
-        const iconHtml = item.icon ? `<sl-icon src="${item.icon}"></sl-icon>` : '';
-        const menuDesc = item.iconOnly && iconHtml ? '' : `<span class="h5p-desc">${title}</span>`;
+        const safeTitle = escapeHTML(title);
+        const safeTitleAttr = escapeAttr(title);
+        const safeDescription = escapeAttr(desc || title);
+        const safeAction = escapeAttr(item.action || '');
+        const safeArgs = safeJsonAttr(item.args || null);
+        const safeIcon = safeURL(item.icon);
+        const iconHtml = safeIcon ? `<sl-icon src="${escapeAttr(safeIcon)}"></sl-icon>` : '';
+        const menuDesc = item.iconOnly && iconHtml ? '' : `<span class="h5p-desc">${safeTitle}</span>`;
 
         if (item.dropdownMenu) {
           return `
             <sl-dropdown distance="6">
-              <span slot="trigger" class="h5p-action-btn" title="${desc || title}" data-title="${title}" data-action="${item.action || ''}">
+              <span slot="trigger" class="h5p-action-btn" title="${safeDescription}" data-title="${safeTitleAttr}" data-action="${safeAction}" role="button" tabindex="0">
                 ${iconHtml}
                 ${menuDesc}
               </span>
@@ -11709,7 +11766,7 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
           `
         } else {
           return `
-            <span class="h5p-action-btn h5p-menu-action" title="${desc || title}" data-title="${title}" data-action="${item.action || ''}" data-args='${JSON.stringify(item.args || null)}'>
+            <span class="h5p-action-btn h5p-menu-action" title="${safeDescription}" data-title="${safeTitleAttr}" data-action="${safeAction}" data-args='${safeArgs}' role="button" tabindex="0">
               ${iconHtml}
               ${menuDesc}
             </span>
@@ -11726,8 +11783,8 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
   }
 
   function createLogoModTemplate () {
-    const homepage = globalFunctional.getHomePageLink.fn();
-    return `<a class="h5p-logo-mod" href="${homepage}" target="_blank">h5player</a>`
+    const homepage = safeURL(globalFunctional.getHomePageLink.fn());
+    return `<a class="h5p-logo-mod" href="${escapeAttr(homepage)}" target="_blank" rel="noopener noreferrer">h5player</a>`
   }
 
   const defaultRecommendList = [];
@@ -11780,7 +11837,10 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
         }
       }
 
-      return `<a class="h5p-recommend-item" href="${url}" title="${desc}" target="_blank">${title}</a>`
+      const safeRecommendURL = safeURL(url);
+      if (!safeRecommendURL) { return '' }
+
+      return `<a class="h5p-recommend-item" href="${escapeAttr(safeRecommendURL)}" title="${escapeAttr(desc)}" target="_blank" rel="noopener noreferrer">${escapeHTML(title)}</a>`
     }).join('');
 
     return `<div class="h5p-recommend-mod" >${recommendHtml}</div>`
@@ -11838,7 +11898,12 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
     }
 
     const action = actionDOM.getAttribute('data-action');
-    const args = JSON.parse(actionDOM.getAttribute('data-args') || null);
+    let args = null;
+    try {
+      args = JSON.parse(actionDOM.getAttribute('data-args') || null);
+    } catch (e) {
+      debug$1.error('[menuActionHandler][parse args error]', e, actionDOM);
+    }
     const url = actionDOM.getAttribute('data-url');
 
     if (url) {
@@ -11930,12 +11995,212 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
     return result.map(id => document.querySelector(`#${id}`))
   }
 
+  const mobileUIStyleId = 'h5player-mobile-ios-polish-style';
+  const uiSheetFallbackStyleId = 'h5player-ui-sheet-fallback-style';
+
+  function injectStyleText (styleId, cssText) {
+    if (!cssText || document.getElementById(styleId)) { return }
+
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = cssText;
+    (document.head || document.documentElement || document.body).appendChild(style);
+  }
+
+  function applyUISheet () {
+    if (document.adoptedStyleSheets && Array.isArray(document.adoptedStyleSheets)) {
+      if (!document.adoptedStyleSheets.includes(sheet)) {
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      }
+      return
+    }
+
+    try {
+      const cssText = Array.from(sheet.cssRules || []).map(rule => rule.cssText).join('\n');
+      injectStyleText(uiSheetFallbackStyleId, cssText);
+    } catch (e) {
+      debug.error('[h5playerUI][applyUISheet]', e);
+    }
+  }
+
+  function injectMobileUIStyle () {
+    if (document.getElementById(mobileUIStyleId)) { return }
+
+    const cssText = `
+      .h5player-popup-wrap {
+        --h5p-ios-bg: rgba(14, 18, 28, 0.78);
+        --h5p-ios-border: rgba(255, 255, 255, 0.18);
+        --h5p-ios-accent: #66e3ff;
+        --h5p-ios-safe-bottom: env(safe-area-inset-bottom, 0px);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .h5player-popup-wrap .h5player-popup-content {
+        isolation: isolate;
+        backdrop-filter: saturate(1.45) blur(18px);
+        -webkit-backdrop-filter: saturate(1.45) blur(18px);
+      }
+
+      .h5player-popup-wrap .h5p-action-btn {
+        border-radius: 12px;
+        transition: background 160ms ease, transform 160ms ease, color 160ms ease;
+      }
+
+      .h5player-popup-wrap .h5p-action-btn:active {
+        transform: scale(0.94);
+      }
+
+      @media (hover: none), (pointer: coarse), (max-width: 768px) {
+        .h5player-popup-wrap {
+          opacity: 0;
+          transition: opacity 180ms ease, transform 180ms ease;
+          transform: translateY(8px);
+          pointer-events: auto;
+          touch-action: manipulation;
+        }
+
+        .h5player-popup-active,
+        .h5player-popup-full-active {
+          opacity: 1 !important;
+          transform: translateY(0);
+        }
+
+        .h5player-popup-wrap sl-popup::part(popup) {
+          width: min(100vw - 16px, 720px);
+          max-width: calc(100vw - 16px);
+          padding-bottom: max(4px, var(--h5p-ios-safe-bottom));
+        }
+
+        .h5player-popup-wrap sl-dropdown::part(panel) {
+          max-width: min(92vw, 360px);
+          max-height: min(58vh, 440px);
+          overflow: auto;
+          border-radius: 16px;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .h5player-popup-wrap .h5player-popup-content {
+          box-sizing: border-box;
+          width: 100%;
+          min-width: 0;
+          height: auto;
+          min-height: 58px;
+          line-height: 1.2;
+          gap: 8px;
+          padding: 8px 10px calc(8px + max(0px, var(--h5p-ios-safe-bottom) / 3));
+          overflow: hidden;
+          background: linear-gradient(135deg, rgba(25, 30, 44, 0.82), var(--h5p-ios-bg));
+          border: 1px solid var(--h5p-ios-border);
+          border-bottom: 1px solid rgba(102, 227, 255, 0.35);
+          border-radius: 18px;
+          box-shadow: 0 10px 34px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        }
+
+        .h5player-popup-wrap:hover .h5player-popup-content,
+        .h5player-popup-full-active .h5player-popup-content {
+          border-bottom-color: rgba(102, 227, 255, 0.78);
+        }
+
+        .h5player-popup-content .h5p-logo-wrap,
+        .h5player-popup-content .h5p-recommend-wrap {
+          display: none;
+        }
+
+        .h5player-popup-content .h5p-menu-wrap {
+          min-width: 0;
+          width: 100%;
+          overflow: hidden;
+        }
+
+        .h5player-popup-content .h5p-action-mod {
+          justify-content: flex-start;
+          gap: 8px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          padding: 0 2px 2px;
+          scroll-snap-type: x proximity;
+          scrollbar-width: none;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .h5player-popup-content .h5p-action-mod::-webkit-scrollbar {
+          display: none;
+        }
+
+        .h5player-popup-content .h5p-action-btn {
+          flex: 0 0 auto;
+          min-width: 46px;
+          min-height: 44px;
+          padding: 0 12px;
+          gap: 4px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.08);
+          color: rgba(255, 255, 255, 0.94);
+          font-size: 13px;
+          font-weight: 650;
+          letter-spacing: 0.01em;
+          scroll-snap-align: start;
+          user-select: none;
+          -webkit-user-select: none;
+        }
+
+        .h5player-popup-content .h5p-action-btn:hover,
+        .h5player-popup-content .h5p-action-btn:focus-visible {
+          background: rgba(102, 227, 255, 0.2);
+          color: #fff;
+          outline: none;
+        }
+
+        .h5player-popup-content .h5p-action-btn sl-icon {
+          box-sizing: content-box;
+          width: 19px;
+          height: 19px;
+          padding: 0;
+          color: var(--h5p-ios-accent);
+        }
+
+        .h5player-popup-content .h5p-desc:empty {
+          display: none;
+        }
+
+        .h5player-popup-content .h5p-action-mod sl-menu {
+          max-width: min(92vw, 360px);
+          max-height: min(58vh, 440px);
+          overflow: auto;
+          padding: 8px;
+          border: 1px solid var(--h5p-ios-border);
+          border-radius: 16px;
+          background: rgba(18, 22, 34, 0.94);
+          box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .h5player-popup-content .h5p-action-mod sl-menu-item::part(base) {
+          min-height: 44px;
+          border-radius: 12px;
+          font-size: 15px;
+          padding: 6px 10px;
+        }
+      }
+
+      @media (max-width: 380px) {
+        .h5player-popup-content .h5p-action-btn {
+          min-width: 44px;
+          padding: 0 10px;
+          font-size: 12px;
+        }
+      }
+    `;
+    injectStyleText(mobileUIStyleId, cssText);
+  }
+
   const h5playerUI = {
     async init () {
       debug.log('h5playerUI init');
 
       /* 插入组件相关的样式 */
-      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      applyUISheet();
+      injectMobileUIStyle();
     },
 
     disableGUITemporarily () {
@@ -11997,7 +12262,7 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
       const menuTemplate = createMenuTemplate(menuConfigPreprocess(menuConfig, element));
       popupWrap = parseHTML(`
       <div id="${popupWrapId}" class="h5player-popup-wrap">
-        <sl-popup placement="top" sync="width">
+        <sl-popup placement="top" sync="width" distance="8">
         <div class="h5player-popup-content">
           <div class="h5p-logo-wrap">
             ${createLogoModTemplate()}
@@ -12042,7 +12307,7 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
 
         popup.updateComplete.then(() => {
           popup.anchor = element;
-          popup.distance = -48;
+          popup.distance = device.isMobile() ? 8 : -48;
           popup.active = true;
           setTimeout(() => { popup.reposition(); }, 600);
         });
@@ -12214,6 +12479,15 @@ const h5playerUI = function (window) {var h5playerUI = (function () {
           openDropdown(event);
         });
       }
+
+      popupWrap.addEventListener('keydown', (event) => {
+        if (!['Enter', ' '].includes(event.key)) { return }
+        const actionBtn = event.target.closest('.h5p-action-btn, .h5p-menu-action');
+        if (!actionBtn) { return }
+
+        event.preventDefault();
+        actionBtn.click();
+      });
 
       popupWrap.addEventListener('click', (event) => {
         openDropdown(event);
@@ -13997,38 +14271,61 @@ const h5Player = {
     let tipsStyle = `
       position: absolute;
       z-index: 999999;
-      font-size: ${t.fontSize || 16}px;
-      padding: 5px 10px;
-      background: rgba(0,0,0,0.4);
-      color:white;
-      top: 0;
-      left: 0;
-      transition: all 500ms ease;
+      box-sizing: border-box;
+      max-width: min(88%, 520px);
+      font-size: ${Math.max(t.fontSize || 16, device.isMobile() ? 15 : 12)}px;
+      font-weight: 650;
+      line-height: 1.35;
+      padding: ${device.isMobile() ? '9px 14px' : '7px 12px'};
+      background: rgba(12, 16, 26, 0.72);
+      color: white;
+      top: max(10px, env(safe-area-inset-top, 0px));
+      left: 50%;
+      transform: translateX(-50%);
+      transition: opacity 240ms ease, transform 240ms ease;
       opacity: 0;
-      border-bottom-right-radius: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+      backdrop-filter: saturate(1.35) blur(14px);
+      -webkit-backdrop-filter: saturate(1.35) blur(14px);
       display: none;
-      -webkit-font-smoothing: subpixel-antialiased;
-      font-family: 'microsoft yahei', Verdana, Geneva, sans-serif;
+      pointer-events: none;
+      text-align: center;
+      -webkit-font-smoothing: antialiased;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'microsoft yahei', Verdana, Geneva, sans-serif;
       -webkit-user-select: none;
+      user-select: none;
     `;
 
     if (isAudio) {
       tipsStyle = `
         position: fixed;
         z-index: 999999;
-        font-size: ${t.fontSize || 16}px;
-        padding: 5px 10px;
-        background: rgba(0,0,0,0.4);
-        color:white;
-        bottom: 0;
-        right: 0;
-        transition: all 500ms ease;
+        box-sizing: border-box;
+        max-width: min(88vw, 520px);
+        font-size: ${Math.max(t.fontSize || 16, device.isMobile() ? 15 : 12)}px;
+        font-weight: 650;
+        line-height: 1.35;
+        padding: ${device.isMobile() ? '9px 14px' : '7px 12px'};
+        background: rgba(12, 16, 26, 0.72);
+        color: white;
+        bottom: max(12px, env(safe-area-inset-bottom, 0px));
+        right: max(12px, env(safe-area-inset-right, 0px));
+        transition: opacity 240ms ease, transform 240ms ease;
         opacity: 0;
-        border-top-left-radius: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 999px;
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+        backdrop-filter: saturate(1.35) blur(14px);
+        -webkit-backdrop-filter: saturate(1.35) blur(14px);
         display: none;
-        -webkit-font-smoothing: subpixel-antialiased;
-        font-family: 'microsoft yahei', Verdana, Geneva, sans-serif;
+        pointer-events: none;
+        text-align: center;
+        -webkit-font-smoothing: antialiased;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'microsoft yahei', Verdana, Geneva, sans-serif;
         -webkit-user-select: none;
+        user-select: none;
       `;
     }
 
@@ -15085,14 +15382,14 @@ async function h5PlayerInit () {
 
   /* 注意：只有明确为fasle才隐藏GUI */
   if (configManager.get('ui.enable') !== false) {
-    if (window.customElements && document.adoptedStyleSheets) {
+    if (window.customElements) {
       h5Player.UI = h5playerUI(windowSandbox);
       setTimeout(async () => {
         h5Player.UI.init();
       }, 400);
     } else {
       /* webkit内核建议73以上的浏览器才允许使用UI组件，否则兼容或性能都是很大的问题 */
-      debug.warn('当前浏览器不支持customElements或adoptedStyleSheets，无法使用UI组件，建议使用Chrome 83+，Edge 83+');
+      debug.warn('当前浏览器不支持customElements，无法使用UI组件，建议使用现代浏览器');
     }
   } else {
     debug.warn('UI组件已被禁用', configManager.get('ui.enable'));
